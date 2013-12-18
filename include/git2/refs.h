@@ -569,6 +569,16 @@ GIT_EXTERN(int) git_reference_is_valid_name(const char *refname);
  */
 GIT_EXTERN(const char *) git_reference_shorthand(git_reference *ref);
 
+/**
+ * Start a new transaction for the specified reference
+ *
+ * Lock the reference and return a transaction that can be used to
+ * modify the reference under lock. You must either commit or rollback
+ * the transaction, or it will remain locked.
+ */
+GIT_EXTERN(int) git_reference_transaction_new(git_reference_transaction **out, git_repository *repo, const char *name);
+
+GIT_EXTERN(int) git_reference_transaction_set_reference((git_reference_transaction *txn, git_reference *ref);
 
 /** @} */
 GIT_END_DECL

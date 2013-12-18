@@ -56,6 +56,34 @@ struct git_reference_iterator {
 		git_reference_iterator *iter);
 };
 
+/**
+ * A transaction for a single reference
+ * 
+ * Any function returning a transaction must set the ref and (if
+ * available) reflog pointers.
+ */
+struct git_reference_transaction {
+	git_refdb *db;
+
+	git_reference *ref;
+	git_reflog *reflog;
+
+	/**
+	 * Apply the changes to the backend
+	 */
+	int (*commit)(git_reference_transaction *txn);
+
+	/**
+	 * Ignore any changes made in the transaction.
+	 */
+	int (*rollback)(git_reference_transaction *txn);
+
+	/**
+	 * Free the transaction
+	 */
+	void (*free)(git_reference_transaction *txn);
+}
+
 /** An instance for a custom backend */
 struct git_refdb_backend {
 	unsigned int version;
@@ -139,6 +167,16 @@ struct git_refdb_backend {
 	 * Remove a reflog.
 	 */
 	int (*reflog_delete)(git_refdb_backend *backend, const char *name);
+
+	/**
+	 * Create a new transaction
+	 */
+	int (*transaction_new)(git_reference_transaction *out, git_refdb_backend *backend, const char *name);
+
+	/**
+	 * Commit the changes made in a transaction
+	 */
+	int (*transaction_commit)(git_refdb_backend *backend, git_reference_transaction *txn);
 };
 
 #define GIT_REFDB_BACKEND_VERSION 1
