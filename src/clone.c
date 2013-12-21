@@ -22,6 +22,7 @@
 #include "refs.h"
 #include "path.h"
 #include "repository.h"
+#include "odb.h"
 
 static int create_branch(
 	git_reference **branch,
@@ -319,6 +320,22 @@ static bool should_checkout(
 	return !git_repository_head_unborn(repo);
 }
 
+static int checkout_branch(git_repository *repo, git_remote *remote, const git_checkout_opts *co_opts, const char *branch)
+{
+	int error;
+
+	if (branch)
+		error = update_head_to_branch(repo, git_remote_name(remote), branch);
+	/* Point HEAD to the same ref as the remote's head */
+	else
+		error = update_head_to_remote(repo, remote);
+
+	if (!error && should_checkout(repo, git_repository_is_bare(repo), co_opts))
+		error = git_checkout_head(repo, co_opts);
+
+	return error;
+}
+
 int git_clone_into(git_repository *repo, git_remote *remote, const git_checkout_opts *co_opts, const char *branch)
 {
 	int error = 0, old_fetchhead;
@@ -344,14 +361,7 @@ int git_clone_into(git_repository *repo, git_remote *remote, const git_checkout_
 	if ((error = git_remote_fetch(remote)) != 0)
 		goto cleanup;
 
-	if (branch)
-		error = update_head_to_branch(repo, git_remote_name(remote), branch);
-	/* Point HEAD to the same ref as the remote's head */
-	else
-		error = update_head_to_remote(repo, remote);
-
-	if (!error && should_checkout(repo, git_repository_is_bare(repo), co_opts))
-		error = git_checkout_head(repo, co_opts);
+	error = checkout_branch(repo, remote, co_opts, branch);
 
 cleanup:
 	git_remote_set_update_fetchhead(remote, old_fetchhead);
@@ -402,8 +412,15 @@ int git_clone(
 		return error;
 
 	if (!(error = create_and_configure_origin(&origin, repo, url, &options))) {
-		error = git_clone_into(
-			repo, origin, &options.checkout_opts, options.checkout_branch);
+		if (git__prefixcmp(url, "file://")) {
+			error = git_clone_local_into(
+				repo, origin, &options.checkout_opts,
+				options.checkout_branch);
+		} else {
+			error = git_clone_into(
+				repo, origin, &options.checkout_opts,
+				options.checkout_branch);
+		}
 
 		git_remote_free(origin);
 	}
@@ -416,5 +433,77 @@ int git_clone(
 	}
 
 	*out = repo;
+	return error;
+}
+
+static const char *repository_base(git_repository *repo)
+{
+	if (git_repository_is_bare(repo))
+		return git_repository_path(repo);
+
+	return git_repository_workdir(repo);
+}
+
+int git_clone_local_into(git_repository *repo, git_remote *remote, const git_checkout_opts *co_opts, const char *branch)
+{
+	int error, root;
+	git_repository *src;
+	git_buf src_odb = GIT_BUF_INIT, dst_odb = GIT_BUF_INIT, src_path = GIT_BUF_INIT;
+	const char *url;
+
+	assert(repo && remote && co_opts);
+
+	if (!git_repository_is_empty(repo)) {
+		giterr_set(GITERR_INVALID, "the repository is not empty");
+		return -1;
+	}
+
+	/*
+	 * Let's figure out what path we should use for the source
+	 * repo, if it's not rooted, the path should be relative to
+	 * the repository's worktree/gitdir.
+	 */
+	url = git_remote_url(remote);
+	if (!git__prefixcmp(url, "file://"))
+		root = strlen("file://");
+	else
+		root = git_path_root(url);
+
+	if (root >= 0)
+		git_buf_puts(&src_path, url + root);
+	else
+		git_buf_joinpath(&src_path, repository_base(repo), url);
+
+	if (git_buf_oom(&src_path))
+		return -1;
+
+	/* Copy .git/objects/ from the source to the target */
+	if ((error = git_repository_open(&src, git_buf_cstr(&src_path))) < 0) {
+		git_buf_free(&src_path);
+		return error;
+	}
+
+	git_buf_joinpath(&src_odb, git_repository_path(src), GIT_OBJECTS_DIR);
+	git_buf_joinpath(&dst_odb, git_repository_path(repo), GIT_OBJECTS_DIR);
+	if (git_buf_oom(&src_odb) || git_buf_oom(&dst_odb)) {
+		error = -1;
+		goto cleanup;
+	}
+
+	if ((error = git_futils_cp_r(git_buf_cstr(&src_odb), git_buf_cstr(&dst_odb),
+				     0, GIT_OBJECT_DIR_MODE)) < 0)
+		goto cleanup;
+
+	/* This will update the remote-tracking branches */
+	if ((error = git_remote_fetch(remote)) < 0)
+		goto cleanup;
+
+	error = checkout_branch(repo, remote, co_opts, branch);
+
+cleanup:
+	git_buf_free(&src_path);
+	git_buf_free(&src_odb);
+	git_buf_free(&dst_odb);
+	git_repository_free(src);
 	return error;
 }
