@@ -387,6 +387,20 @@ cleanup:
 	return error;
 }
 
+static bool should_clone_local(const char *url, git_clone_local_t local)
+{
+	if (local == GIT_CLONE_NO_LOCAL)
+		return false;
+
+	if (!git__prefixcmp(url, "file://") && local != GIT_CLONE_LOCAL)
+		return false;
+
+	if ((git_path_exists(url) && git_path_isdir(url)) && local != GIT_CLONE_NO_LOCAL)
+		return true;
+
+	return false;
+}
+
 int git_clone(
 	git_repository **out,
 	const char *url,
