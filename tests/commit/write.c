@@ -158,3 +158,30 @@ void test_commit_write__root(void)
 	git_signature_free(committer);
 	git_reflog_free(log);
 }
+
+void test_commit_write__append(void)
+{
+	git_tree *tree;
+	git_oid tree_id, commit_id;
+	git_signature *author, *committer;
+
+	git_oid_fromstr(&tree_id, tree_oid);
+	cl_git_pass(git_tree_lookup(&tree, g_repo, &tree_id));
+
+	cl_git_pass(git_signature_new(&author, committer_name, committer_email, 987654321, 90));
+	cl_git_pass(git_signature_new(&committer, committer_name, committer_email, 123456789, 60));
+
+	cl_git_pass(git_commit_append(
+		&commit_id, /* out id */
+		g_repo,
+		"HEAD",
+		author,
+		committer,
+		NULL,
+		root_commit_message,
+		tree));
+
+	git_tree_free(tree);
+	git_signature_free(committer);
+	git_signature_free(author);
+}

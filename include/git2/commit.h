@@ -351,6 +351,25 @@ GIT_EXTERN(int) git_commit_amend(
 	const char *message,
 	const git_tree *tree);
 
+/**
+ * Create a commit on top of the tip of a given branch
+ *
+ * All parameters have the same meaning as in `git_commit_create()`
+ * with the exception that `update_ref` is required and the new
+ * commit's single parent will be the value of that ref at the time of
+ * reading.
+ */
+int git_commit_append(
+	git_oid *id,
+	git_repository *repo,
+	const char *update_ref,
+	const git_signature *author,
+	const git_signature *committer,
+	const char *message_encoding,
+	const char *message,
+	const git_tree *tree);
+
+
 /** @} */
 GIT_END_DECL
 #endif

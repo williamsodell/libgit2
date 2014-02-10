@@ -16,6 +16,7 @@
 #include "commit.h"
 #include "signature.h"
 #include "message.h"
+#include "refs.h"
 
 #include <stdarg.h>
 
@@ -34,6 +35,25 @@ void git_commit__free(void *_commit)
 	git__free(commit->summary);
 
 	git__free(commit);
+}
+
+static int commit_reflog_message(git_buf *buf, git_repository *repo, const git_oid *id)
+{
+	git_commit *c;
+	const char *shortmsg;
+
+	git_buf_clear(buf);
+
+	if (git_commit_lookup(&c, repo, id) < 0)
+		return -1;
+
+	shortmsg = git_commit_summary(c);
+	git_buf_printf(buf, "commit%s: %s",
+		       git_commit_parentcount(c) == 0 ? " (initial)" : "",
+		       shortmsg);
+	git_commit_free(c);
+
+	return 0;
 }
 
 int git_commit_create_from_callback(
@@ -81,18 +101,10 @@ int git_commit_create_from_callback(
 
 	if (update_ref != NULL) {
 		int error;
-		git_commit *c;
-		const char *shortmsg;
 		git_buf reflog_msg = GIT_BUF_INIT;
 
-		if (git_commit_lookup(&c, repo, id) < 0)
+		if ((error = commit_reflog_message(&reflog_msg, repo, id)) < 0)
 			goto on_error;
-
-		shortmsg = git_commit_summary(c);
-		git_buf_printf(&reflog_msg, "commit%s: %s",
-				git_commit_parentcount(c) == 0 ? " (initial)" : "",
-				shortmsg);
-		git_commit_free(c);
 
 		error = git_reference__update_terminal(repo, update_ref, id,
 				committer, git_buf_cstr(&reflog_msg));
@@ -271,6 +283,48 @@ int git_commit_amend(
 	return git_commit_create_from_callback(
 		id, repo, update_ref, author, committer, message_encoding, message,
 		&tree_id, commit_parent_for_amend, (void *)commit_to_amend);
+}
+
+int git_commit_append(
+	git_oid *id,
+	git_repository *repo,
+	const char *update_ref,
+	const git_signature *author,
+	const git_signature *committer,
+	const char *message_encoding,
+	const char *message,
+	const git_tree *tree)
+{
+	git_buf reflog_msg = GIT_BUF_INIT;
+	git_reference *ref, *ref2;
+	const git_oid *parent_id = NULL;
+	git_commit *parent;
+	int error;
+
+	assert(repo && update_ref && author && committer && message);
+
+	if ((error = git_reference_lookup_resolved(&ref, repo, update_ref, 5)) < 0)
+		return error;
+
+	parent_id = git_reference_target(ref);
+	if ((error = git_commit_lookup(&parent, repo, parent_id)) < 0)
+		goto out;
+
+	error = git_commit_create_v(id, repo, NULL, author, committer, message_encoding, message, tree, 1, parent_id);
+	if (error < 0)
+		goto out;
+
+	if ((error = commit_reflog_message(&reflog_msg, repo, parent_id)) < 0)
+		goto out;
+
+	error = git_reference_set_target(&ref2, ref, id, committer, git_buf_cstr(&reflog_msg));
+	git_buf_free(&reflog_msg);
+
+out:
+	git_commit_free(parent);
+	git_reference_free(ref);
+	git_reference_free(ref2);
+	return error;
 }
 
 int git_commit__parse(void *_commit, git_odb_object *odb_obj)
