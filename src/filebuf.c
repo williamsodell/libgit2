@@ -258,6 +258,7 @@ int git_filebuf_open(git_filebuf *file, const char *path, int flags, mode_t mode
 			goto cleanup;
 		}
 		file->fd_is_open = true;
+		file->temporary = true;
 
 		/* No original path */
 		file->path_original = NULL;
@@ -334,7 +335,8 @@ int git_filebuf_commit(git_filebuf *file)
 
 	file->fd = -1;
 
-	p_unlink(file->path_original);
+	if (file->temporary)
+		p_unlink(file->path_original);
 
 	if (p_rename(file->path_lock, file->path_original) < 0) {
 		giterr_set(GITERR_OS, "Failed to rename lockfile to '%s'", file->path_original);

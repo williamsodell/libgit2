@@ -44,6 +44,7 @@ struct git_filebuf {
 	git_file fd;
 	bool fd_is_open;
 	bool do_not_buffer;
+	bool temporary;
 	int last_error;
 };
 
