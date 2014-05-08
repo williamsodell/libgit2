@@ -318,7 +318,7 @@ on_error:
 	return -1;
 }
 
-static int save_entry(git_indexer *idx, struct git_entry *entry, struct git_pack_entry *pentry, git_off_t git_entry_start)
+static int save_entry(git_indexer *idx, struct git_entry *entry, struct git_pack_entry *pentry, git_off_t entry_start)
 {
 	int i, error;
 	khiter_t k;
